@@ -146,6 +146,11 @@ export LD_LIBRARY_PATH=${LTHOME}/lib/3rd:${LTHOME}/lib:${LTHOME}/lib/ltext:${LTH
 EOF
 }
 
+if [ -z "$LTHOME" ] || [ -z "$LTDATA" ]; then
+  echo '$LTHOME and $LTDATA are not set'
+  exit 1
+fi
+
 case $1 in
   add)
   echo "add new node"
