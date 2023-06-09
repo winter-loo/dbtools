@@ -111,7 +111,46 @@ manage_node() {
   done
 }
 
+add_node() {
+  if [ $# -ne 1 ]; then
+    echo "add command need one argument for node id"
+    return
+  fi
+  id=$1
+  node_dir="node${id}"
+  [ -d $node_dir ] && echo "$node_dir already exists!" && return
+
+  mkdir $node_dir
+  source_dir=`basename $LTHOME`
+  outfile=${source_dir}.tar
+  cwd=`pwd`
+
+  if [ ! -f $outfile ]; then
+    pushd $LTHOME/.. >/dev/null
+    # exlude `data` directory
+    tar -c --exclude ${LTDATA##$LTHOME/} -f $outfile $source_dir
+    mv $outfile $cwd 
+    popd >/dev/null
+  fi
+
+  tar xf $outfile -C $node_dir
+  random_port=$(shuf -i 10000-65535 -n 1)
+  echo "export LTPORT=$random_port" > $node_dir/env.sh
+  cat << 'EOF' >> $node_dir/env.sh
+export LTUSER=lightdb
+export LTHOST=127.0.0.1
+export LTHOME=`pwd`/lightdb-x
+export LTDATA=$LTHOME/cluster/data
+export PATH=${LTHOME}/bin:${LTHOME}/tools/bin:${LTHOME}/tools/sbin:${PATH}
+export LD_LIBRARY_PATH=${LTHOME}/lib/3rd:${LTHOME}/lib:${LTHOME}/lib/ltext:${LTHOME}/tools/lib64:${LD_LIBRARY_PATH}
+EOF
+}
+
 case $1 in
+  add)
+  echo "add new node"
+  add_node $2
+  ;;
   [0-9]*)
   node="node$1"
   pushd $node >/dev/null
