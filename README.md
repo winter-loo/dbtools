@@ -16,3 +16,5 @@ manage multiple lightdb instance in one machine. Each instance has a distinct po
   - `node.sh start`, `node.sh stop`, `node.sh reload`, `node.sh config wal_level`
   - `node.sh config wal_level=logical`, `node.sh config shared_preload_libraries+='canopy,'`
   - `node.sh 01 status`, `node.sh 01 stop`, ...
+
+See Chinese [article](https://www.cnblogs.com/lddcool/p/lightdb_node_script.html) for detail.
