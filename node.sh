@@ -126,11 +126,13 @@ add_node() {
   cwd=`pwd`
 
   if [ ! -f $outfile ]; then
+    set -x
     pushd $LTHOME/.. >/dev/null
     # exlude `data` directory
     tar -c --exclude ${LTDATA##$LTHOME/} -f $outfile $source_dir
     mv $outfile $cwd 
     popd >/dev/null
+    set +x
   fi
 
   tar xf $outfile -C $node_dir
