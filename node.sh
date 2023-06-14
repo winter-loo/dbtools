@@ -19,7 +19,7 @@ hint_when_GUC_params_changed() {
 node() {
   case $1 in
     initdb)
-    initdb
+    lt_initdb -p $LTPORT | tee initdb.log
 
     # enable 'canopy' extension
     sed -i "s/^#shared_preload_libraries = '/shared_preload_libraries = 'canopy,/" $LTDATA/lightdb.conf
@@ -90,8 +90,9 @@ node() {
       esac
       ;;
     reset)
-    rm -fr $LTDATA
-    rm -f $LTHOME/etc/ltcluster/ltcluster.pid
+    lt_ctl stop >/dev/null 2>&1
+    rm -fr $LTDATA >/dev/null 2>&1
+    rm -f $LTHOME/etc/ltcluster/ltcluster.pid >/dev/null 2>&1
     ;;
     *)
     lt_ctl status
