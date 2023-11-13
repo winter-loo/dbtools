@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+import cx_Oracle
+import sys
+import shutil
+
+# check arguments
+if len(sys.argv) != 2 or not sys.argv[1].endswith(".sql.q"):
+    print(f"usage: {sys.argv[0]} <xxx.sql.q>")
+    sys.exit(0)
+else:
+    sqlfile_qe = sys.argv[1]
+
+
+# create an oracle connection and a curosr object
+g_conn = cx_Oracle.connect(
+  user="test",
+  password="test",
+  dsn="10.20.30.193:1521/test"
+)
+
+g_cursor = g_conn.cursor()
+
+# simple test
+# g_cursor.execute('select 1 from dual')
+# row = g_cursor.fetchone()
+# print(row)
+
+def executeSql(sql, fetch=True):
+    if sql == None or len(sql) == 0:
+        return None
+    print("will execute sql: ", end='')
+    if sql.find("\n") != -1:
+        print()
+    print(sql)
+
+    try:
+        g_cursor.execute(sql)
+        if fetch:
+            actual, *rest = g_cursor.fetchone()
+    except cx_Oracle.Error as e:
+        msg = f"{e}".strip()
+        actual = f"error '{msg}'"
+        print(actual)
+        g_cursor.execute("rollback")
+    if fetch:
+        return actual
+    return None
+
+
+#
+# query sql
+#
+line_need_result = None
+lastline_written = -1
+file_contents = []
+sqlfile = sqlfile_qe.strip(".q")
+# oracle requires code block to be sent as a whole,
+# postgres allows code block to be sent line by line.
+in_sql_code_block = False
+sql = ""
+
+try:
+    with open(sqlfile, "r") as f:
+        line_count = sum(1 for line in f)
+except FileNotFoundError:
+    line_count = 0
+
+with open(sqlfile_qe, "r") as infile, open(sqlfile, "a") as outfile:
+    for lino, line in enumerate(infile):
+        file_contents.append(line)
+        line = line.rstrip()
+        if lino < line_count or len(line) == 0:
+            continue
+        elif line.startswith("--?"):
+            line_need_result = lino
+        elif line.startswith("--<<"):
+            if in_sql_code_block:
+                raise RuntimeError("nested sql code block is not supported yet")
+            in_sql_code_block = True
+        elif line.startswith("-->>"):
+            in_sql_code_block = False
+            sql.rstrip("\n;")
+            res = executeSql(sql, fetch=(line_need_result != None))
+            if res != None:
+                file_contents[line_need_result - lastline_written - 1] = f"--= {res}\n"
+                outfile.writelines(file_contents)
+                lastline_written = lino
+                file_contents.clear()
+                line_need_result = None
+        elif line.startswith("--"):
+            continue
+        else:
+            if in_sql_code_block:
+                sql += line + "\n"
+                continue
+            else:
+                # in oracle, the sql line should not end with ';'
+                res = executeSql(line.strip(";"), fetch=(line_need_result != None))
+                if res != None:
+                    file_contents[line_need_result - lastline_written - 1] = f"--= {res}\n"
+                    outfile.writelines(file_contents)
+                    lastline_written = lino
+                    file_contents.clear()
+                    line_need_result = None
+    if len(file_contents) > 0:
+        outfile.writelines(file_contents)
+# shutil.move(sqlfile, sqlfile_qe)
+#
+# program shutdown cleanup
+#
+g_cursor.close()
+g_conn.close()

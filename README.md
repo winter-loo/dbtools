@@ -1,4 +1,4 @@
-# shutils
+# Database Toolbox
 
 ## node.sh
 
@@ -18,3 +18,22 @@ manage multiple lightdb instance in one machine. Each instance has a distinct po
   - `node.sh 01 status`, `node.sh 01 stop`, ...
 
 See Chinese [article](https://www.cnblogs.com/lddcool/p/lightdb_node_script.html) for detail.
+
+
+## sqltest
+
+sql query executed on postgresql
+
+```shell
+./sqltest oracle_null_test.sql
+```
+
+
+## squery
+
+sql query executed on oracle
+
+```shell
+./squery oracle_replace_test.sql.d
+./sqltest oracle_replace_test.sql
+```
