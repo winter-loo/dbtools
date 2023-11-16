@@ -30,15 +30,16 @@ def getExpectedValue(comment):
     --= str 1
     --= num 1
     --= str '1'
+    --= null
     --= datetime '20231108 09:00:00'
     --= datetimetz '20231108 09:00:00+08:00'
     --= error
-    --= error 'division by zero'
+    --= error, this is a description
     """
     cmt = comment[4:]
     arr = cmt.split(",")
     raw_val = arr[0]
-    desc = arr[1] if len(arr) > 1 else None
+    desc = ",".join(arr[1:]) if len(arr) > 1 else None
     # print(f"expected val: `{raw_val}`", end = "")
     # if desc != None:
     #     print(f", description: {desc}")
@@ -48,7 +49,9 @@ def getExpectedValue(comment):
     expected = None
     if raw_val.find(' ') == -1:
         if raw_val.startswith("error"):
-            expected = "error 'whatever'"
+            expected = "error"
+        elif raw_val == "null":
+            expected = "null"
         elif raw_val.find("\'") != -1:
             raw_val = raw_val.strip("\'")
             expected = f"str {raw_val}"
@@ -61,6 +64,8 @@ def getExpectedValue(comment):
                 expected = f"num {raw_val}"
             except decimal.InvalidOperation:
                 expected = f"str {raw_val}"
+    else:
+        expected = raw_val
 
     return expected
     
@@ -68,19 +73,20 @@ def getExpectedValue(comment):
 def executeSql(sql, fetch=True, bind_data=()):
     if sql == None or len(sql) == 0:
         return None
-    print("will execute sql: ", end='')
-    if sql.find("\n") != -1:
-        print()
-    print(sql)
+    # print("will execute sql: ", end='')
+    # if sql.find("\n") != -1:
+    #     print()
+    # print(sql)
 
     try:
         g_cursor.execute(sql, bind_data)
         if fetch:
             actual, *rest = g_cursor.fetchone()
     except psycopg2.Error as e:
-        msg = f"{e}".strip()
+        msg = f"{e}".strip().split("\n")[0]
         actual = f"error '{msg}'"
-        print(actual)
+        if not fetch:
+            print(f"\033[0;31mUNEXPECTED ERROR\033[0m: sql `{sql}`, {actual}")
         g_cursor.execute("rollback")
     if fetch:
         return actual
@@ -89,8 +95,15 @@ def executeSql(sql, fetch=True, bind_data=()):
 
 def isEqual(expected, actual):
     # print(f"expected: `{expected}`, actual: `{actual}`")
-    typname, typval = expected.split(" ", maxsplit=1)
-    if typname == "num":
+    if expected.find(" ") != -1:
+        typname, typval = expected.split(" ", maxsplit=1)
+    else:
+        typname = expected
+        typval = expected
+
+    if typname == "null":
+        expected = typval
+    elif typname == "num":
         expected = Decimal(typval)
     elif typname == "int2" or typname == "int4" or typname == "int8" or \
         typname == "int" or typname == "smallint" or typname == "bigint":
@@ -117,7 +130,7 @@ def isEqual(expected, actual):
         raise ValueError("unknown type name")
 
     if isinstance(actual, str) and actual.startswith("error") and typname == "error":
-        return expected == "whatever" or expected == actual.splits[1]
+        return expected == "error" or expected == actual.split()[1]
         
     return expected == actual
 
@@ -140,7 +153,7 @@ class Statis(object):
         )
         print(summary)
         if self.failed > 0:
-            print("Failed sql statements:\n")
+            # print("Failed sql statements:\n")
             i = 1
             for sql in self.failed_sql:
                 print(f"{i}) at line {sql[0]}\n")
@@ -153,28 +166,70 @@ g_statis = Statis();
 
 # a flag to allow DDL statements
 expected = None
+sql = ""
+sql_block = None
+sql_block_lino = None
+sql_block_expected = None
+in_sql_code_block = False
 
 lino = 0
 with open(sqlfile, "r") as f:
     for line in f:
         lino += 1
-        line = line.strip()
+        line = line.rstrip()
         if len(line) == 0:
+            continue
+        elif line.startswith("/"):
             continue
         elif line.startswith("--= "):
             expected = getExpectedValue(line)
+        elif line.startswith("---{"):
+            if in_sql_code_block:
+                raise RuntimeError("nested sql code block is not supported yet")
+            in_sql_code_block = True
+            sql_block = ""
+            sql_block_lino = lino
+            sql_block_expected = expected
+            expected = None
+        elif line.startswith("---}"):
+            in_sql_code_block = False
+            if sql_block_expected != None:
+                g_statis.num_sql_tested += 1
+
+                actual = executeSql(sql_block)
+                if actual == None:
+                    actual = "null"
+                if not isEqual(sql_block_expected, actual):
+                    g_statis.failed += 1
+                    # g_statis.failed_sql.append((lino, sql))
+                    print(f"at line {sql_block_lino}, sql:\n\033[0;32m{sql_block}\033[0;m")
+                    print(f"expected: `\033[0;32m{sql_block_expected}\033[0m`, actual: `\033[0;31m{actual}\033[0m`")
+                    # break
+                else:
+                    g_statis.passed += 1
+            else:
+                executeSql(sql_block, fetch=False)
+            
         elif line.startswith("--"):
             continue
         else:
-            sql = line.strip(";").strip()
+            if in_sql_code_block:
+                sql_block += line + "\n"
+                continue
+            else:
+                sql = line.strip(";").strip()
+
             if expected != None:
                 g_statis.num_sql_tested += 1
 
                 actual = executeSql(sql)
+                if actual == None:
+                    actual = "null"
                 if not isEqual(expected, actual):
                     g_statis.failed += 1
-                    g_statis.failed_sql.append((lino, sql))
-                    print(f"expected: `{expected}`, actual: `{actual}`")
+                    # g_statis.failed_sql.append((lino, sql))
+                    print(f"at line {lino}, sql: \033[0;32m{sql}\033[0;m")
+                    print(f"expected: `\033[0;32m{expected}\033[0m`, actual: `\033[0;31m{actual}\033[0m`")
                     # break
                 else:
                     g_statis.passed += 1

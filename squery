@@ -38,9 +38,10 @@ def executeSql(sql, fetch=True):
         if fetch:
             actual, *rest = g_cursor.fetchone()
     except cx_Oracle.Error as e:
-        msg = f"{e}".strip()
-        actual = f"error '{msg}'"
-        print(actual)
+        msg = f"{e}".strip().split("\n")[0]
+        actual = f"error, '{msg}'"
+        if fetch == False:
+            print(f"\033[1;31mUNEXPECTED ERROR\033[0m: sql `{sql}`, {actual}")
         g_cursor.execute("rollback")
     if fetch:
         return actual
@@ -69,24 +70,29 @@ with open(sqlfile_qe, "r") as infile, open(sqlfile, "a") as outfile:
     for lino, line in enumerate(infile):
         file_contents.append(line)
         line = line.rstrip()
-        if lino < line_count or len(line) == 0:
+        if lino < line_count or len(line) == 0 or line.startswith('/'):
             continue
         elif line.startswith("--?"):
             line_need_result = lino
-        elif line.startswith("--<<"):
+        elif line.startswith("---{"):
             if in_sql_code_block:
                 raise RuntimeError("nested sql code block is not supported yet")
             in_sql_code_block = True
-        elif line.startswith("-->>"):
+        elif line.startswith("---}"):
             in_sql_code_block = False
+            if len(sql) == 0:
+                continue
             sql.rstrip("\n;")
             res = executeSql(sql, fetch=(line_need_result != None))
-            if res != None:
+            if line_need_result != None:
+                if res == None:
+                    res = "null"
                 file_contents[line_need_result - lastline_written - 1] = f"--= {res}\n"
                 outfile.writelines(file_contents)
                 lastline_written = lino
                 file_contents.clear()
                 line_need_result = None
+            sql = ""
         elif line.startswith("--"):
             continue
         else:
@@ -96,8 +102,15 @@ with open(sqlfile_qe, "r") as infile, open(sqlfile, "a") as outfile:
             else:
                 # in oracle, the sql line should not end with ';'
                 res = executeSql(line.strip(";"), fetch=(line_need_result != None))
-                if res != None:
-                    file_contents[line_need_result - lastline_written - 1] = f"--= {res}\n"
+                if line_need_result != None:
+                    if res == None:
+                        res = "null"
+                    the_line = file_contents[line_need_result - lastline_written - 1]
+                    if the_line.find(",") == -1:
+                        the_line = f"--= {res}\n"
+                    else:
+                        the_line = the_line.replace("--?,", f"--= {res},")
+                    file_contents[line_need_result - lastline_written - 1] = the_line
                     outfile.writelines(file_contents)
                     lastline_written = lino
                     file_contents.clear()
